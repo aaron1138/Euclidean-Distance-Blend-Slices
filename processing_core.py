@@ -230,51 +230,80 @@ def _calculate_weighted_receding_gradient_field(current_white_mask, prior_binary
     if num_items == 0:
         return np.zeros_like(current_white_mask, dtype=np.uint8)
 
-    prior_binary_masks = prior_binary_masks[:num_items]
-    weights = weights[:num_items]
+    # Correctly select the relevant portion of prior masks and weights
+    # The 'prior_binary_masks' are already newest-to-oldest, so we take the first `num_items`.
+    # The weights and fades must correspond to this order.
+    active_prior_masks = prior_binary_masks[:num_items]
+    active_weights = weights[:num_items]
+    active_fade_distances = config.fade_distances_receding[:num_items]
 
-    total_weight = float(sum(weights))
+    total_weight = float(sum(active_weights))
     if total_weight <= 0:
         return np.zeros_like(current_white_mask, dtype=np.uint8)
 
+    # Using float32 for accumulation to handle the sum of weighted gradients without clipping.
     weighted_accumulator = np.zeros(current_white_mask.shape, dtype=np.float32)
+    # This mask will track all areas where any gradient is applied.
+    combined_receding_mask = np.zeros_like(current_white_mask, dtype=np.uint8)
 
-    fade_distances = config.fade_distances_receding
-    default_fade_dist = config.fixed_fade_distance_receding
-
-    # The distance map is calculated once, based on the current layer's geometry,
-    # as the gradient should be smooth from the current feature's edge.
+    # The distance transform is calculated once from the current layer's edges.
+    # This ensures a smooth, continuous gradient source.
     distance_transform_src = cv2.bitwise_not(current_white_mask)
     distance_map = cv2.distanceTransform(distance_transform_src, cv2.DIST_L2, 5)
 
-    for i, (prior_mask, weight) in enumerate(zip(prior_binary_masks, weights)):
+    if debug_info:
+        # Save the global distance map for debugging purposes.
+        cv2.imwrite(os.path.join(debug_info['output_folder'], f"{debug_info['base_filename']}_debug_weighted_dist_map.png"),
+                    (distance_map / np.max(distance_map) * 255).astype(np.uint8) if np.max(distance_map) > 0 else np.zeros_like(distance_map, dtype=np.uint8))
+
+    # Iterate through each prior layer to calculate its contribution to the final gradient.
+    for i, prior_mask in enumerate(active_prior_masks):
+        weight = active_weights[i]
         if weight <= 0:
             continue
 
-        fade_dist = fade_distances[i] if i < len(fade_distances) else default_fade_dist
+        # Determine the fade distance for this specific prior layer.
+        fade_dist = active_fade_distances[i] if i < len(active_fade_distances) else config.fixed_fade_distance_receding
         denominator = fade_dist if fade_dist > 0 else 1.0
 
+        # Identify where this specific prior layer existed but the current layer does not.
         receding_white_areas = cv2.bitwise_and(prior_mask, cv2.bitwise_not(current_white_mask))
         if cv2.countNonZero(receding_white_areas) == 0:
             continue
 
-        # Mask the single distance map with this layer's specific receding area
+        # Update the combined mask with this layer's receding areas.
+        combined_receding_mask = cv2.bitwise_or(combined_receding_mask, receding_white_areas)
+
+        # Use the global distance map, but only consider the areas relevant to this prior layer.
         receding_distance_map = cv2.bitwise_and(distance_map, distance_map, mask=receding_white_areas)
 
+        # Normalize the gradient for this layer based on its specific fade distance.
         clipped_distance_map = np.clip(receding_distance_map, 0, fade_dist)
+        # The gradient is inverted: 1.0 at the edge (dist 0), fading to 0.0 at `fade_dist`.
         normalized_map = 1.0 - (clipped_distance_map / denominator)
 
-        weighted_accumulator += normalized_map * weight
+        # Add the weighted, normalized gradient for this layer to the accumulator.
+        weighted_accumulator += (normalized_map * weight)
 
+        if debug_info:
+            # Save the intermediate gradient for this specific layer for debugging.
+            grad_layer_8bit = (255 * (normalized_map * (weight / 100.0))).astype(np.uint8)
+            cv2.imwrite(os.path.join(debug_info['output_folder'], f"{debug_info['base_filename']}_debug_weighted_grad_layer_{i}_w{weight}.png"), grad_layer_8bit)
+
+
+    # Normalize the accumulated gradients by the total weight to get the final blend.
+    # This ensures the final output is scaled correctly regardless of the sum of weights.
     final_normalized_map = weighted_accumulator / total_weight
+
+    # Convert the final float gradient map to an 8-bit image.
     final_gradient_map = (255 * final_normalized_map).astype(np.uint8)
 
-    combined_receding_mask = np.zeros_like(current_white_mask, dtype=np.uint8)
-    for prior_mask in prior_binary_masks:
-        receding_area = cv2.bitwise_and(prior_mask, cv2.bitwise_not(current_white_mask))
-        combined_receding_mask = cv2.bitwise_or(combined_receding_mask, receding_area)
-
+    # Ensure the final gradient only exists in the areas where it's supposed to.
     final_gradient_map = cv2.bitwise_and(final_gradient_map, final_gradient_map, mask=combined_receding_mask)
+
+    if debug_info:
+        # Save the final combined gradient map.
+        cv2.imwrite(os.path.join(debug_info['output_folder'], f"{debug_info['base_filename']}_debug_weighted_final_gradient.png"), final_gradient_map)
 
     return final_gradient_map
 
