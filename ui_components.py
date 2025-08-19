@@ -388,39 +388,26 @@ class ImageProcessorApp(QWidget):
 
         falloff_type = self.falloff_type_combo.currentData()
         weights = []
-        # The 'endpoint=False' argument is crucial for some of these functions
-        # to ensure the last value isn't 0, providing a more intuitive falloff.
         x = np.arange(num_layers)
 
         if falloff_type == WeightingFalloff.FLAT:
             weights = np.full(num_layers, 100)
         elif falloff_type == WeightingFalloff.LINEAR:
-            # Linear falloff from 100 to a small number.
             weights = np.linspace(100, 100 / max(1, num_layers), num_layers)
         elif falloff_type == WeightingFalloff.EXPONENTIAL:
-            # Exponential decay. The base (e.g., 0.85) controls the steepness.
-            # A base closer to 1 gives a slower falloff.
             weights = 100 * np.power(0.80, x)
         elif falloff_type == WeightingFalloff.LOGARITHMIC:
-            # Logarithmic falloff, inverted and scaled.
-            # We add 1 to avoid log(0).
-            weights = 100 * (1 - np.log(x + 1) / np.log(num_layers + 1))
+            weights = 100 * (1 - np.log1p(x) / np.log1p(num_layers))
         elif falloff_type == WeightingFalloff.GAUSSIAN:
-            # Gaussian (half-bell) curve.
-            # The 'scale' parameter controls how quickly it drops. A smaller
-            # value makes the drop steeper. We map num_layers to ~3 standard deviations.
             scale = num_layers / 3.0
             weights = 100 * np.exp(-0.5 * (x / scale)**2)
 
-        # Convert to integer, ensuring values are within a valid range.
-        # Clip ensures that edge cases in formulas don't produce invalid weights.
         weights = np.round(weights).astype(int)
         weights = np.clip(weights, 0, 1000).tolist()
 
-        # Update the placeholder text in the UI so the user sees the generated weights.
         for i, editor in enumerate(self.manual_weight_editors):
+            editor.clear()  # Clear previous user input
             if i < len(weights):
-                # Set placeholder text, which is used if the user leaves the field blank.
                 editor.setPlaceholderText(str(weights[i]))
             else:
                 editor.setPlaceholderText("")
