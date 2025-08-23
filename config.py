@@ -40,6 +40,7 @@ class GradientSlotMode(Enum):
     EQUATION = "Equation-Based"
     TABLE = "Table-Based"
     PIECEWISE = "Piecewise"
+    FILE = "File-Based"
 
 
 class WeightingFalloff(Enum):
@@ -166,6 +167,8 @@ class OrthogonalEngineConfig:
     gradient_equation_params: LutParameters = field(default_factory=LutParameters)
     # Path to the master 256-value LUT for the 'Table-Based' slot mode.
     gradient_table_path: str = ""
+    # Path to the full 256-slot gradient set for 'File-Based' mode.
+    gradient_set_path: str = ""
     # Enables the dynamic curvature weighting feature.
     enable_dynamic_curvature: bool = False
     # Configuration for the 'Piecewise' slot mode.

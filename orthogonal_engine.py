@@ -16,6 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import numpy as np
+import json
 from config import OrthogonalEngineConfig, GradientSlotMode, LutParameters
 import lut_manager
 
@@ -146,6 +147,21 @@ def precompute_gradient_slots(config: OrthogonalEngineConfig) -> list:
                 curve_func = lambda x: x # Default to linear
                 for n in range(current_pos, 256):
                     slots[n] = _generate_symmetric_gradient(n, curve_func)
+
+    elif mode == GradientSlotMode.FILE:
+        try:
+            with open(config.gradient_set_path, 'r') as f:
+                loaded_lists = json.load(f)
+            if not isinstance(loaded_lists, list) or len(loaded_lists) != 256:
+                raise ValueError("Invalid format for gradient set file.")
+            # Convert loaded lists back to numpy arrays
+            for i, grad_list in enumerate(loaded_lists):
+                slots[i] = np.array(grad_list, dtype=np.uint8)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
+            print(f"Warning: Could not load gradient set from '{config.gradient_set_path}': {e}. Falling back to LINEAR.")
+            curve_func = lambda x: x
+            for n in range(1, 256):
+                slots[n] = _generate_symmetric_gradient(n, curve_func)
 
     return slots
 

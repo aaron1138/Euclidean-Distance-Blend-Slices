@@ -15,8 +15,6 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-# ui_components.py (Final Touches)
-
 import os
 import shutil
 import numpy as np
@@ -34,6 +32,7 @@ from config import (
     ProcessingMode, WeightingFalloff
 )
 from pyside_xy_blend_tab import XYBlendTab
+from pyside_orthogonal_tab import Orthogonal1DTab
 from processing_pipeline import ProcessingPipelineThread
 
 class ImageProcessorApp(QWidget):
@@ -154,16 +153,12 @@ class ImageProcessorApp(QWidget):
 
         blending_mode_layout = QHBoxLayout()
         blending_mode_layout.addWidget(QLabel("Blending Mode:"))
-        self.blending_mode_group = QButtonGroup(self)
-        self.fixed_fade_mode_radio = QRadioButton("Fixed Fade")
-        self.roi_fade_mode_radio = QRadioButton("ROI Fade")
-        self.weighted_stack_mode_radio = QRadioButton("Weighted Stack")
-        self.blending_mode_group.addButton(self.fixed_fade_mode_radio, 0)
-        self.blending_mode_group.addButton(self.roi_fade_mode_radio, 1)
-        self.blending_mode_group.addButton(self.weighted_stack_mode_radio, 2)
-        blending_mode_layout.addWidget(self.fixed_fade_mode_radio)
-        blending_mode_layout.addWidget(self.roi_fade_mode_radio)
-        blending_mode_layout.addWidget(self.weighted_stack_mode_radio)
+        self.blending_mode_combo = QComboBox()
+        self.blending_mode_combo.addItem("Fixed Fade", ProcessingMode.FIXED_FADE)
+        self.blending_mode_combo.addItem("ROI Fade", ProcessingMode.ROI_FADE)
+        self.blending_mode_combo.addItem("Weighted Stack", ProcessingMode.WEIGHTED_STACK)
+        self.blending_mode_combo.addItem("Orthogonal 1D", ProcessingMode.ORTHOGONAL_1D)
+        blending_mode_layout.addWidget(self.blending_mode_combo)
         blending_mode_layout.addStretch(1)
         blending_layout.addLayout(blending_mode_layout)
 
@@ -184,14 +179,13 @@ class ImageProcessorApp(QWidget):
         self.blending_stacked_widget = QStackedWidget()
         blending_layout.addWidget(self.blending_stacked_widget)
 
-        # --- Fixed Fade Widget (now empty) ---
+        # --- Fixed Fade Widget (Index 0) ---
         fixed_fade_widget = QWidget()
         self.blending_stacked_widget.addWidget(fixed_fade_widget)
 
-        # --- ROI Fade Widget ---
+        # --- ROI Fade Widget (Index 1) ---
         roi_fade_widget = QWidget()
         roi_fade_layout = QVBoxLayout(roi_fade_widget)
-
         main_roi_layout = QGridLayout()
         main_roi_layout.addWidget(QLabel("Min ROI Size (pixels):"), 0, 0)
         self.roi_min_size_edit = QLineEdit("100")
@@ -199,7 +193,6 @@ class ImageProcessorApp(QWidget):
         main_roi_layout.addWidget(self.roi_min_size_edit, 0, 1)
         main_roi_layout.setColumnStretch(2, 1)
         roi_fade_layout.addLayout(main_roi_layout)
-
         self.raft_support_group = QGroupBox("Raft & Support Handling")
         self.raft_support_group.setCheckable(True)
         raft_support_layout = QGridLayout(self.raft_support_group)
@@ -230,10 +223,9 @@ class ImageProcessorApp(QWidget):
         roi_fade_layout.addStretch(1)
         self.blending_stacked_widget.addWidget(roi_fade_widget)
 
-        # --- Weighted Stack Widget ---
+        # --- Weighted Stack Widget (Index 2) ---
         weighted_stack_widget = QWidget()
         weighted_stack_layout = QVBoxLayout(weighted_stack_widget)
-
         falloff_layout = QHBoxLayout()
         falloff_layout.addWidget(QLabel("Weight Falloff Type:"))
         self.falloff_type_combo = QComboBox()
@@ -242,21 +234,25 @@ class ImageProcessorApp(QWidget):
         falloff_layout.addWidget(self.falloff_type_combo)
         falloff_layout.addStretch(1)
         weighted_stack_layout.addLayout(falloff_layout)
-
         manual_weights_group = QGroupBox("Manual Layer Weights (most recent -> least recent)")
         self.manual_weights_layout = QHBoxLayout(manual_weights_group)
         self.manual_weights_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         weighted_stack_layout.addWidget(manual_weights_group)
         self.manual_weight_editors = []
-
         fade_distances_group = QGroupBox("Per-Layer Fade Distances (pixels)")
         self.fade_distances_layout = QHBoxLayout(fade_distances_group)
         self.fade_distances_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         weighted_stack_layout.addWidget(fade_distances_group)
         self.fade_distance_editors = []
-
         weighted_stack_layout.addStretch(1)
         self.blending_stacked_widget.addWidget(weighted_stack_widget)
+
+        # --- Orthogonal 1D Widget (Index 3) ---
+        ortho_1d_widget = QWidget()
+        ortho_layout = QVBoxLayout(ortho_1d_widget)
+        ortho_layout.addWidget(QLabel("Configuration for this mode is on the 'Orthogonal 1D' tab."))
+        ortho_layout.addStretch(1)
+        self.blending_stacked_widget.addWidget(ortho_1d_widget)
 
         overhang_layout = QGridLayout()
         overhang_layout.addWidget(QLabel("Overhang Look Up Layers: (Disabled / WiP)"), 0, 0)
@@ -304,6 +300,9 @@ class ImageProcessorApp(QWidget):
         self.xy_blend_tab = XYBlendTab(self)
         self.tab_widget.addTab(self.xy_blend_tab, "XY Blend Pipeline")
 
+        self.ortho_1d_tab = Orthogonal1DTab(self)
+        self.tab_widget.addTab(self.ortho_1d_tab, "Orthogonal 1D")
+
         self.start_stop_button = QPushButton("Start Processing")
         self.start_stop_button.setMinimumHeight(40)
         main_layout.addWidget(self.start_stop_button)
@@ -321,7 +320,7 @@ class ImageProcessorApp(QWidget):
         self.uvtools_temp_folder_button.clicked.connect(lambda: self.browse_folder(self.uvtools_temp_folder_edit))
         self.uvtools_input_file_button.clicked.connect(lambda: self.browse_file(self.uvtools_input_file_edit, "Select Input Slice File"))
         self.input_mode_group.idClicked.connect(self.on_input_mode_changed)
-        self.blending_mode_group.buttonClicked.connect(self.on_blending_mode_changed)
+        self.blending_mode_combo.currentIndexChanged.connect(self.on_blending_mode_changed)
         self.receding_layers_edit.textChanged.connect(self._update_manual_weight_editors)
         self.receding_layers_edit.textChanged.connect(self._update_fade_distance_editors)
         self.falloff_type_combo.currentIndexChanged.connect(self._update_weights_from_falloff)
@@ -330,7 +329,6 @@ class ImageProcessorApp(QWidget):
         self.start_stop_button.clicked.connect(self.toggle_processing)
 
     def _autodetect_uvtools(self):
-        """Checks for UVTools in the default location and populates the path if found."""
         default_path = "C:\\Program Files\\UVTools\\UVToolsCmd.exe"
         if os.path.exists(default_path):
             if not self.uvtools_path_edit.text():
@@ -339,78 +337,44 @@ class ImageProcessorApp(QWidget):
     def on_input_mode_changed(self, stack_index):
         self.io_stacked_widget.setCurrentIndex(stack_index)
 
-    def on_blending_mode_changed(self, button):
-        # The ID now directly corresponds to the stack index
-        stack_index = self.blending_mode_group.id(button)
-        self.blending_stacked_widget.setCurrentIndex(stack_index)
+    def on_blending_mode_changed(self, index):
+        self.blending_stacked_widget.setCurrentIndex(index)
 
     def _update_manual_weight_editors(self):
-        self._update_dynamic_editors(
-            self.manual_weight_editors,
-            self.manual_weights_layout,
-            QIntValidator(0, 1000, self),
-            50
-        )
+        self._update_dynamic_editors(self.manual_weight_editors, self.manual_weights_layout, QIntValidator(0, 1000, self), 50)
         self._update_weights_from_falloff()
 
     def _update_fade_distance_editors(self):
-        self._update_dynamic_editors(
-            self.fade_distance_editors,
-            self.fade_distances_layout,
-            QDoubleValidator(0.1, 1000.0, 2, self),
-            60
-        )
+        self._update_dynamic_editors(self.fade_distance_editors, self.fade_distances_layout, QDoubleValidator(0.1, 1000.0, 2, self), 60)
 
     def _update_dynamic_editors(self, editor_list, layout, validator, width):
-        try:
-            num_items = int(self.receding_layers_edit.text())
-        except (ValueError, TypeError):
-            num_items = 0
-
+        try: num_items = int(self.receding_layers_edit.text())
+        except (ValueError, TypeError): num_items = 0
         while len(editor_list) > num_items:
-            editor = editor_list.pop()
-            layout.removeWidget(editor)
-            editor.deleteLater()
-
+            editor = editor_list.pop(); layout.removeWidget(editor); editor.deleteLater()
         while len(editor_list) < num_items:
-            editor = QLineEdit()
-            editor.setValidator(validator)
-            editor.setFixedWidth(width)
-            layout.addWidget(editor)
-            editor_list.append(editor)
+            editor = QLineEdit(); editor.setValidator(validator); editor.setFixedWidth(width)
+            layout.addWidget(editor); editor_list.append(editor)
 
     def _update_weights_from_falloff(self):
         try:
             num_layers = int(self.receding_layers_edit.text())
             if num_layers <= 0: return
-        except (ValueError, TypeError):
-            return
-
+        except (ValueError, TypeError): return
         falloff_type = self.falloff_type_combo.currentData()
         weights = []
         x = np.arange(num_layers)
-
-        if falloff_type == WeightingFalloff.FLAT:
-            weights = np.full(num_layers, 100)
-        elif falloff_type == WeightingFalloff.LINEAR:
-            weights = np.linspace(100, 100 / max(1, num_layers), num_layers)
-        elif falloff_type == WeightingFalloff.EXPONENTIAL:
-            weights = 100 * np.power(0.80, x)
-        elif falloff_type == WeightingFalloff.LOGARITHMIC:
-            weights = 100 * (1 - np.log1p(x) / np.log1p(num_layers))
-        elif falloff_type == WeightingFalloff.GAUSSIAN:
-            scale = num_layers / 3.0
-            weights = 100 * np.exp(-0.5 * (x / scale)**2)
-
+        if falloff_type == WeightingFalloff.FLAT: weights = np.full(num_layers, 100)
+        elif falloff_type == WeightingFalloff.LINEAR: weights = np.linspace(100, 100 / max(1, num_layers), num_layers)
+        elif falloff_type == WeightingFalloff.EXPONENTIAL: weights = 100 * np.power(0.80, x)
+        elif falloff_type == WeightingFalloff.LOGARITHMIC: weights = 100 * (1 - np.log1p(x) / np.log1p(num_layers))
+        elif falloff_type == WeightingFalloff.GAUSSIAN: weights = 100 * np.exp(-0.5 * (x / num_layers / 3.0)**2)
         weights = np.round(weights).astype(int)
         weights = np.clip(weights, 0, 1000).tolist()
-
         for i, editor in enumerate(self.manual_weight_editors):
-            editor.clear()  # Clear previous user input
-            if i < len(weights):
-                editor.setPlaceholderText(str(weights[i]))
-            else:
-                editor.setPlaceholderText("")
+            editor.clear()
+            if i < len(weights): editor.setPlaceholderText(str(weights[i]))
+            else: editor.setPlaceholderText("")
 
     def browse_folder(self, line_edit):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder", line_edit.text())
@@ -421,10 +385,8 @@ class ImageProcessorApp(QWidget):
         if file: line_edit.setText(file)
 
     def load_settings(self):
-        """Loads settings from the global config object into the UI."""
         self.resize(self.settings.value("window_size", self.size()))
         self.move(self.settings.value("window_position", self.pos()))
-        
         self.folder_mode_radio.setChecked(config.input_mode == "folder")
         self.uvtools_mode_radio.setChecked(config.input_mode == "uvtools")
         self.io_stacked_widget.setCurrentIndex(1 if config.input_mode == "uvtools" else 0)
@@ -442,19 +404,10 @@ class ImageProcessorApp(QWidget):
         self.receding_layers_edit.setText(str(config.receding_layers))
         self.fade_dist_receding_edit.setText(str(config.fixed_fade_distance_receding))
 
-        # --- Blending Mode Loading ---
-        blending_mode_to_id = {
-            ProcessingMode.FIXED_FADE: 0,
-            ProcessingMode.ROI_FADE: 1,
-            ProcessingMode.WEIGHTED_STACK: 2
-        }
-        id_to_check = blending_mode_to_id.get(config.blending_mode, 0)
-        button_to_check = self.blending_mode_group.button(id_to_check)
-        if button_to_check:
-            button_to_check.setChecked(True)
-        self.blending_stacked_widget.setCurrentIndex(id_to_check)
+        index = self.blending_mode_combo.findData(config.blending_mode)
+        self.blending_mode_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.blending_stacked_widget.setCurrentIndex(index if index >= 0 else 0)
 
-        # --- ROI Settings ---
         self.roi_min_size_edit.setText(str(config.roi_params.min_size))
         self.raft_support_group.setChecked(config.roi_params.enable_raft_support_handling)
         self.raft_layer_count_edit.setText(str(config.roi_params.raft_layer_count))
@@ -463,28 +416,18 @@ class ImageProcessorApp(QWidget):
         self.support_max_layer_edit.setText(str(config.roi_params.support_max_layer))
         self.support_max_growth_edit.setText(f"{(config.roi_params.support_max_growth - 1.0) * 100.0:.1f}")
 
-        # --- Weighted Stack Settings ---
         self._update_manual_weight_editors()
         self._update_fade_distance_editors()
-
         index = self.falloff_type_combo.findData(config.weighted_falloff_type)
         self.falloff_type_combo.setCurrentIndex(index if index >= 0 else 0)
-
         for i, editor in enumerate(self.manual_weight_editors):
-            if i < len(config.manual_weights):
-                editor.setText(str(config.manual_weights[i]))
-            else:
-                editor.setText("")
+            if i < len(config.manual_weights): editor.setText(str(config.manual_weights[i]))
+            else: editor.setText("")
         self._update_weights_from_falloff()
-
         for i, editor in enumerate(self.fade_distance_editors):
-            if i < len(config.fade_distances_receding):
-                editor.setText(str(config.fade_distances_receding[i]))
-            else:
-                # Provide a default if the config list is shorter
-                editor.setText("10.0")
+            if i < len(config.fade_distances_receding): editor.setText(str(config.fade_distances_receding[i]))
+            else: editor.setText("10.0")
 
-        # --- General Settings ---
         self.overhang_layers_edit.setText(str(config.overhang_layers))
         self.fixed_fade_overhang_checkbox.setChecked(config.use_fixed_fade_overhang)
         self.fade_dist_overhang_edit.setText(str(config.fixed_fade_distance_overhang))
@@ -492,12 +435,11 @@ class ImageProcessorApp(QWidget):
         self.debug_checkbox.setChecked(config.debug_save)
         
         self.xy_blend_tab.apply_settings(config)
+        self.ortho_1d_tab.apply_settings(config)
 
     def save_settings(self):
-        """Saves current UI settings to the global config object and QSettings."""
         self.settings.setValue("window_size", self.size())
         self.settings.setValue("window_position", self.pos())
-
         config.input_mode = "uvtools" if self.uvtools_mode_radio.isChecked() else "folder"
         config.input_folder = self.input_folder_edit.text()
         config.output_folder = self.output_folder_edit.text()
@@ -510,82 +452,49 @@ class ImageProcessorApp(QWidget):
         config.uvtools_delete_temp_on_completion = self.uvtools_cleanup_checkbox.isChecked()
         config.uvtools_output_location = "input_folder" if self.uvtools_output_input_radio.isChecked() else "working_folder"
 
-        id_to_blending_mode = {
-            0: ProcessingMode.FIXED_FADE,
-            1: ProcessingMode.ROI_FADE,
-            2: ProcessingMode.WEIGHTED_STACK
-        }
-        checked_id = self.blending_mode_group.checkedId()
-        config.blending_mode = id_to_blending_mode.get(checked_id, ProcessingMode.FIXED_FADE)
+        config.blending_mode = self.blending_mode_combo.currentData()
 
-        try:
-            config.roi_params.min_size = int(self.roi_min_size_edit.text())
-        except ValueError:
-            config.roi_params.min_size = 100
-
+        try: config.roi_params.min_size = int(self.roi_min_size_edit.text())
+        except ValueError: config.roi_params.min_size = 100
         config.roi_params.enable_raft_support_handling = self.raft_support_group.isChecked()
-        try:
-            config.roi_params.raft_layer_count = int(self.raft_layer_count_edit.text())
-        except ValueError:
-            config.roi_params.raft_layer_count = 5
-        try:
-            config.roi_params.raft_min_size = int(self.raft_min_size_edit.text())
-        except ValueError:
-            config.roi_params.raft_min_size = 10000
-        try:
-            config.roi_params.support_max_size = int(self.support_max_size_edit.text())
-        except ValueError:
-            config.roi_params.support_max_size = 500
-        try:
-            config.roi_params.support_max_layer = int(self.support_max_layer_edit.text())
-        except ValueError:
-            config.roi_params.support_max_layer = 1000
-        try:
-            config.roi_params.support_max_growth = (float(self.support_max_growth_edit.text().replace(',', '.')) / 100.0) + 1.0
-        except ValueError:
-            config.roi_params.support_max_growth = 2.5
-
+        try: config.roi_params.raft_layer_count = int(self.raft_layer_count_edit.text())
+        except ValueError: config.roi_params.raft_layer_count = 5
+        try: config.roi_params.raft_min_size = int(self.raft_min_size_edit.text())
+        except ValueError: config.roi_params.raft_min_size = 10000
+        try: config.roi_params.support_max_size = int(self.support_max_size_edit.text())
+        except ValueError: config.roi_params.support_max_size = 500
+        try: config.roi_params.support_max_layer = int(self.support_max_layer_edit.text())
+        except ValueError: config.roi_params.support_max_layer = 1000
+        try: config.roi_params.support_max_growth = (float(self.support_max_growth_edit.text().replace(',', '.')) / 100.0) + 1.0
+        except ValueError: config.roi_params.support_max_growth = 2.5
         try: config.receding_layers = int(self.receding_layers_edit.text())
         except ValueError: config.receding_layers = 3
-
-        # The checkbox for use_fixed_fade_receding is removed, so we can consider it always true or remove it from config.
-        # For now, we just don't set it from the UI. The core logic will rely on the distance value.
         config.use_fixed_fade_receding = True
-
         try: config.fixed_fade_distance_receding = float(self.fade_dist_receding_edit.text().replace(',', '.'))
         except ValueError: config.fixed_fade_distance_receding = 10.0
-
         config.weighted_falloff_type = self.falloff_type_combo.currentData()
-
         manual_weights = []
         for editor in self.manual_weight_editors:
             text = editor.text()
             if text:
-                try:
-                    manual_weights.append(int(text))
-                except ValueError:
-                    manual_weights.append(0)
-            else: # If empty, use placeholder
+                try: manual_weights.append(int(text))
+                except ValueError: manual_weights.append(0)
+            else:
                 placeholder = editor.placeholderText()
-                try:
-                    manual_weights.append(int(placeholder))
-                except (ValueError, TypeError):
-                    manual_weights.append(0)
+                try: manual_weights.append(int(placeholder))
+                except (ValueError, TypeError): manual_weights.append(0)
         config.manual_weights = manual_weights
-
         fade_distances = []
         for editor in self.fade_distance_editors:
             text = editor.text().replace(',', '.')
-            try:
-                fade_distances.append(float(text))
-            except (ValueError, TypeError):
-                fade_distances.append(10.0) # Default value on error
+            try: fade_distances.append(float(text))
+            except (ValueError, TypeError): fade_distances.append(10.0)
         config.fade_distances_receding = fade_distances
-
         try: config.thread_count = int(self.thread_count_edit.text())
         except ValueError: config.thread_count = DEFAULT_NUM_WORKERS
         config.debug_save = self.debug_checkbox.isChecked()
         
+        self.ortho_1d_tab.save_settings()
         config.save("app_config.json")
 
     def _save_config_to_file(self):
@@ -627,10 +536,8 @@ class ImageProcessorApp(QWidget):
             self.start_processing()
 
     def start_processing(self):
-        """Validates inputs and starts the processing thread."""
         try:
             self.save_settings()
-            
             if config.input_mode == "folder":
                 if not config.input_folder or not os.path.isdir(config.input_folder):
                     raise ValueError("Input folder must be a valid, existing directory.")
@@ -643,7 +550,6 @@ class ImageProcessorApp(QWidget):
                     raise ValueError("Working Temp Folder must be a valid, existing directory.")
                 if not config.uvtools_input_file or not os.path.exists(config.uvtools_input_file):
                     raise ValueError("Input Slice File is not valid.")
-            
             self.set_ui_enabled(False)
             self.processor_thread = ProcessingPipelineThread(app_config=config, max_workers=config.thread_count)
             self.processor_thread.status_update.connect(self.update_status)
@@ -651,7 +557,6 @@ class ImageProcessorApp(QWidget):
             self.processor_thread.error_signal.connect(self.show_error)
             self.processor_thread.finished_signal.connect(self.processing_finished)
             self.processor_thread.start()
-
         except Exception as e:
             self.show_error_message("Input Error", str(e))
             self.processing_finished()
@@ -693,7 +598,6 @@ class ImageProcessorApp(QWidget):
         msg_box.exec()
 
     def set_ui_enabled(self, enabled):
-        """Toggles the enabled state of all UI widgets."""
         self.tab_widget.setEnabled(enabled)
         self.start_stop_button.setEnabled(True) 
         if not enabled:
