@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QDoubleValidator
 import numpy as np
 import json
 
