@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 import numpy as np
 import json
 
-from config import Config, OrthogonalEngineConfig, GradientSlotMode, LutParameters
+from config import app_config as config, Config, OrthogonalEngineConfig, GradientSlotMode, LutParameters
 from gradient_visualizer import GradientVisualizer
 import orthogonal_engine
 import lut_manager
@@ -20,7 +20,7 @@ class Orthogonal1DTab(QWidget):
     def __init__(self, parent_gui):
         super().__init__()
         self.parent_gui = parent_gui
-        self.config = parent_gui.config
+        self.config = config
         self._block_signals = False
 
         self._setup_ui()
