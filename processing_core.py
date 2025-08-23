@@ -22,6 +22,7 @@ import numpy as np
 import os
 
 from config import ProcessingMode
+import orthogonal_engine
 
 def load_image(filepath):
     """
@@ -308,7 +309,7 @@ def _calculate_weighted_receding_gradient_field(current_white_mask, prior_binary
     return final_gradient_map
 
 
-def process_z_blending(current_white_mask, prior_masks, config, classified_rois, debug_info=None):
+def process_z_blending(current_white_mask, prior_masks, config, classified_rois, debug_info=None, gradient_slots=None):
     """
     Main entry point for Z-axis blending. Dispatches to the correct blending mode.
     `prior_masks` can be a single combined mask or a list of masks depending on the mode.
@@ -327,6 +328,13 @@ def process_z_blending(current_white_mask, prior_masks, config, classified_rois,
             prior_masks, # Expects a list of masks
             config,
             debug_info
+        )
+    elif config.blending_mode == ProcessingMode.ORTHOGONAL_1D:
+        return orthogonal_engine.process_orthogonal_1d(
+            current_white_mask,
+            prior_masks, # Expects a list of masks
+            config.orthogonal_engine,
+            gradient_slots
         )
     else:  # Default to FIXED_FADE
         return _calculate_receding_gradient_field_fixed_fade(

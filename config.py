@@ -31,6 +31,15 @@ class ProcessingMode(Enum):
     FIXED_FADE = "fixed_fade"
     ROI_FADE = "roi_fade"
     WEIGHTED_STACK = "weighted_stack"
+    ORTHOGONAL_1D = "orthogonal_1d"
+
+
+class GradientSlotMode(Enum):
+    """Defines how the 256 gradient slots for the Orthogonal 1D engine are generated."""
+    LINEAR = "Linear"
+    EQUATION = "Equation-Based"
+    TABLE = "Table-Based"
+    PIECEWISE = "Piecewise"
 
 
 class WeightingFalloff(Enum):
@@ -150,6 +159,27 @@ class RoiParameters:
 
 
 @dataclass
+class OrthogonalEngineConfig:
+    """Configuration for the Orthogonal 1D Distance Field Gradient engine."""
+    gradient_slot_mode: GradientSlotMode = GradientSlotMode.LINEAR
+    # Parameters for the 'Equation-Based' slot mode. Reuses LutParameters for simplicity.
+    gradient_equation_params: LutParameters = field(default_factory=LutParameters)
+    # Path to the master 256-value LUT for the 'Table-Based' slot mode.
+    gradient_table_path: str = ""
+    # Enables the dynamic curvature weighting feature.
+    enable_dynamic_curvature: bool = False
+    # Configuration for the 'Piecewise' slot mode.
+    # Format: [{"range_end": 16, "mode": "LINEAR", "params": {}}, {"range_end": 256, "mode": "EQUATION", ...}]
+    piecewise_config: List[dict] = field(default_factory=list)
+
+    def __post_init__(self):
+        if isinstance(self.gradient_slot_mode, str):
+            self.gradient_slot_mode = GradientSlotMode(self.gradient_slot_mode)
+        if isinstance(self.gradient_equation_params, dict):
+            self.gradient_equation_params = LutParameters(**self.gradient_equation_params)
+
+
+@dataclass
 class Config:
     """
     Main application configuration, updated with new UI fields.
@@ -180,6 +210,9 @@ class Config:
     manual_weights: List[int] = field(default_factory=lambda: [100, 75, 50, 25])
     fade_distances_receding: List[float] = field(default_factory=lambda: [10.0, 10.0, 10.0, 10.0])
 
+    # --- Orthogonal 1D Engine Settings ---
+    orthogonal_engine: OrthogonalEngineConfig = field(default_factory=OrthogonalEngineConfig)
+
     # --- Overhang Settings (for future use) ---
     overhang_layers: int = 0
     use_fixed_fade_overhang: bool = False
@@ -199,6 +232,10 @@ class Config:
         for key, value in d.items():
             if isinstance(value, Enum):
                 d[key] = value.value
+        # Special handling for nested dataclasses
+        if 'orthogonal_engine' in d and isinstance(self.orthogonal_engine, OrthogonalEngineConfig):
+            d['orthogonal_engine']['gradient_slot_mode'] = self.orthogonal_engine.gradient_slot_mode.value
+            d['orthogonal_engine']['gradient_equation_params'] = asdict(self.orthogonal_engine.gradient_equation_params)
         return d
 
     @classmethod
@@ -241,6 +278,10 @@ class Config:
                         roi_field_names = {f.name for f in fields(RoiParameters)}
                         filtered_roi_data = {k: v for k, v in value.items() if k in roi_field_names}
                         setattr(config_instance, key, RoiParameters(**filtered_roi_data))
+                elif key == 'orthogonal_engine':
+                    if isinstance(value, dict):
+                        # Use post_init of OrthogonalEngineConfig to handle enum conversion
+                        setattr(config_instance, key, OrthogonalEngineConfig(**value))
                 else:
                     if field_obj.type is bool and isinstance(value, str):
                         value = value.lower() in ('true', '1', 't', 'y')

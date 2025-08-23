@@ -16,6 +16,7 @@ import processing_core as core
 import xy_blend_processor
 from roi_tracker import ROITracker
 import uvtools_wrapper
+import orthogonal_engine
 
 class ProcessingPipelineThread(QThread):
     """
@@ -74,7 +75,8 @@ class ProcessingPipelineThread(QThread):
         app_config: Config,
         xy_blend_pipeline_ops: List[XYBlendOperation],
         output_folder: str,
-        debug_save: bool
+        debug_save: bool,
+        gradient_slots: list
     ) -> str:
         """Processes a single image completely. This function runs in a worker thread."""
         current_binary_image = image_data['binary_image']
@@ -84,8 +86,8 @@ class ProcessingPipelineThread(QThread):
         debug_info = {'output_folder': output_folder, 'base_filename': os.path.splitext(os.path.basename(filepath))[0]} if debug_save else None
 
         # Prepare the prior mask data based on the blending mode
-        if app_config.blending_mode == ProcessingMode.WEIGHTED_STACK:
-            # For weighted mode, pass the list of individual prior masks
+        if app_config.blending_mode in [ProcessingMode.WEIGHTED_STACK, ProcessingMode.ORTHOGONAL_1D]:
+            # For these modes, pass the list of individual prior masks
             prior_masks_for_blending = list(prior_binary_masks_snapshot)
         else:
             # For other modes, pass the single combined mask
@@ -96,7 +98,8 @@ class ProcessingPipelineThread(QThread):
             prior_masks_for_blending,
             app_config,
             image_data['classified_rois'],
-            debug_info=debug_info
+            debug_info=debug_info,
+            gradient_slots=gradient_slots
         )
 
         output_image_from_core = core.merge_to_output(original_image, receding_gradient)
@@ -113,6 +116,13 @@ class ProcessingPipelineThread(QThread):
         The main processing loop.
         """
         self.status_update.emit("Processing started...")
+
+        # Pre-compute gradient slots if using orthogonal engine
+        gradient_slots = []
+        if self.app_config.blending_mode == ProcessingMode.ORTHOGONAL_1D:
+            self.status_update.emit("Pre-computing Orthogonal 1D gradient slots...")
+            gradient_slots = orthogonal_engine.precompute_gradient_slots(self.app_config.orthogonal_engine)
+            self.status_update.emit("Gradient slots computed.")
 
         numeric_pattern = re.compile(r'(\d+)\.\w+$')
         def get_numeric_part(filename):
@@ -212,7 +222,8 @@ class ProcessingPipelineThread(QThread):
                         self.app_config,
                         self.app_config.xy_blend_pipeline,
                         processing_output_path,
-                        self.app_config.debug_save
+                        self.app_config.debug_save,
+                        gradient_slots
                     )
                     active_futures.add(future)
 
